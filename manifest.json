@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "agentbi",
+  "name": "AgentBI",
+  "version": "0.1.0",
+  "author": "JamesChief",
+  "description": "Today's agent-readiness census: how many stores an AI agent can actually buy from",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "AgentBI",
+    "description": "Daily count of stores that deployed UCP, refreshed from the public census",
+    "category": "Info",
+    "allowMultiple": false
+  }
+}
