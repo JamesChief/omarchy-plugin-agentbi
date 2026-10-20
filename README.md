@@ -46,6 +46,20 @@ still works — the file is the one source of truth.
 - The panel lists the five dimensions the score is made of: agent fetch,
   product data, UCP, llms.txt, robots.txt.
 
+## Remove
+
+    omarchy plugin remove agentbi
+
+That leaves the config file behind, since it holds your site:
+
+    rm ~/.config/agentbi/widget.conf
+
+## What it needs
+
+`curl` on PATH and outbound HTTPS to <https://agentbi.tech>. A check is a real
+scan: the server fetches your site the way an agent would, so the first request
+for a given domain can take a few seconds.
+
 ## Where the numbers come from
 
 One GET per scan to <https://agentbi.tech/api/check?url=…>, the same endpoint
