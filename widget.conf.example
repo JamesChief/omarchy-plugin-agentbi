@@ -1,0 +1,6 @@
+# AgentBI bar widget — which site it measures.
+# Edit and save; the widget reloads this file and rescans on its own.
+
+url = https://agentbi.tech
+name = AgentBI
+lang = en

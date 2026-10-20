@@ -4,40 +4,144 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// 状态栏上的每日普查头条：今天有多少站真的部署了 UCP。
-// 数据源是 /summary.json（几百字节），不是 245KB 的 batch.json —— 为了在状态栏
-// 显示一个分数去拉全量原始数据太浪费。数据是公开且可复核的，见 /batch.json。
+// Your own site's agent-readiness score, in the bar: AgentBI icon, a dot
+// coloured by band, and the score. Hovering opens the panel — that panel is
+// the widget, the number in the bar is only its headline.
+//
+// Which site it measures comes from ~/.config/agentbi/widget.conf (url, name,
+// lang). The only request it makes is one GET to agentbi.tech for that URL.
 BarWidget {
   id: root
   moduleName: "agentbi"
 
-  property string label: ""
-  property string detail: "AgentBI: today's census not loaded yet"
+  property string siteUrl: ""
+  property string siteName: ""
+  property string lang: "en"
 
-  function refresh() {
-    fetchProc.running = false
-    fetchProc.running = true
+  // empty | loading | ok | error
+  property string status: "empty"
+  property int score: -1
+  property string checkedUrl: ""
+  property string errText: ""
+  property string checkedAt: ""
+  property bool fromCache: false
+  property var detail: ({})
+
+  readonly property string confPath: Quickshell.env("HOME") + "/.config/agentbi/widget.conf"
+
+  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+  readonly property color fgDim: Qt.darker(root.fg, 1.35)
+  readonly property string mono: root.bar ? root.bar.fontFamily : Style.font.family
+
+  // Same bands the site colours the score by (web/index.html scoreClass).
+  readonly property color band: root.score >= 80 ? "#1a7f4b"
+                              : root.score >= 50 ? "#b8860b" : "#b03030"
+  readonly property color dotColor: root.status === "ok" ? root.band : "#8a8a8a"
+
+  readonly property var rows: [
+    { label: "Agents",       value: root.detail.fetch || "" },
+    { label: "Product data", value: root.detail.structured || "" },
+    { label: "UCP",          value: root.detail.ucp || "" },
+    { label: "llms.txt",     value: root.detail.llms || "" },
+    { label: "robots.txt",   value: root.detail.robots || "" }
+  ]
+
+  // ---- config
+  FileView {
+    path: root.confPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.applyConf(text())
+    onFileChanged: reload()
+    onLoadFailed: root.applyConf("")
   }
 
+  function applyConf(raw) {
+    var lines = String(raw || "").split("\n")
+    var url = "", name = "", lang = "en"
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim()
+      if (line === "" || line.charAt(0) === "#") continue
+      var eq = line.indexOf("=")
+      if (eq < 0) continue
+      var key = line.slice(0, eq).trim().toLowerCase()
+      var val = line.slice(eq + 1).trim()
+      if (key === "url") url = val
+      else if (key === "name") name = val
+      else if (key === "lang") lang = val === "zh" ? "zh" : "en"
+    }
+    root.siteUrl = url
+    root.siteName = name || url
+    root.lang = lang
+    root.refresh()
+  }
+
+  // ---- scan
+  function refresh() {
+    if (!root.siteUrl) {
+      root.status = "empty"
+      return
+    }
+    root.status = "loading"
+    // The config load and the periodic timer both fire at startup; debounced so
+    // the second call cannot kill the first request mid-flight (a killed curl
+    // answers with an empty body, which reads as a failed scan).
+    startTimer.restart()
+  }
+
+  Timer {
+    id: startTimer
+    interval: 250
+    onTriggered: if (!checkProc.running) checkProc.running = true
+  }
+
+  // No -f: a rate-limited or failed scan still answers with JSON that says why,
+  // and that reason belongs in the panel.
   Process {
-    id: fetchProc
-    command: ["curl", "-fsS", "--max-time", "8", "https://agentbi.tech/summary.json"]
+    id: checkProc
+    command: ["curl", "-sS", "--max-time", "25",
+             "https://agentbi.tech/api/check?url="
+             + encodeURIComponent(root.siteUrl) + "&lang=" + root.lang]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        var raw = String(text || "").trim()
-        if (!raw) return
-        var d
-        try { d = JSON.parse(raw) } catch (e) { return }
-        if (!d || d.sites === undefined) return
-        root.label = d.ucp_row2 + "/" + d.sites
-        root.detail = d.day + " · " + d.evaluable + "/" + d.sites + " reachable · avg "
-          + d.avg_score + (d.ctrl_blocks ? " · " + d.ctrl_blocks + " block non-browser clients" : "")
-      }
+      onStreamFinished: root.ingest(String(text || ""))
     }
   }
 
-  // 普查一天跑一次（03:30 +0800），半小时刷一次足够，别去敲别人的服务器。
+  function ingest(raw) {
+    var body = String(raw || "").trim()
+    root.checkedAt = Qt.formatTime(new Date(), "HH:mm")
+    if (!body) {
+      root.status = "error"
+      root.errText = "no answer from agentbi.tech"
+      return
+    }
+    var j = null
+    try { j = JSON.parse(body) } catch (e) {
+      root.status = "error"
+      root.errText = "unreadable answer"
+      return
+    }
+    if (j && j.error) {
+      root.status = "error"
+      root.errText = String(j.error)
+      return
+    }
+    var r = j ? j.result : null
+    if (!r || r.score === undefined) {
+      root.status = "error"
+      root.errText = r && r.error ? String(r.error) : "no result"
+      return
+    }
+    root.fromCache = j.cached === true
+    root.score = r.score
+    root.detail = r.detail || ({})
+    root.checkedUrl = r.checked_url || r.url || root.siteUrl
+    root.status = "ok"
+  }
+
+  // A check of your own site can change whenever you deploy; half an hour
+  // matches the server's cache window.
   Timer {
     interval: 1800000
     running: true
@@ -46,24 +150,215 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  IpcHandler {
+    target: "agentbi"
+    function refresh(): void { root.broadcast("refresh") }
+  }
 
-  WidgetButton {
-    id: button
+  // ---- bar mark
+  implicitWidth: content.implicitWidth + Style.space(14)
+  implicitHeight: root.barSize
+
+  Row {
+    id: content
+    anchors.centerIn: parent
+    spacing: Style.space(6)
+
+    Image {
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(15)
+      height: Style.space(15)
+      source: Qt.resolvedUrl("icon.svg")
+      fillMode: Image.PreserveAspectFit
+      asynchronous: true
+    }
+
+    Rectangle {
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(7)
+      height: Style.space(7)
+      radius: width / 2
+      color: root.dotColor
+    }
+
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      visible: !root.vertical
+      textFormat: Text.PlainText
+      text: root.status === "ok" ? String(root.score) : "—"
+      color: root.fg
+      font.family: root.mono
+      font.pixelSize: Style.font.body
+    }
+  }
+
+  MouseArea {
     anchors.fill: parent
-    bar: root.bar
-    text: root.label === "" ? "—" : root.label
-    tooltipText: root.detail
-
-    onPressed: function (b) {
-      if (b === Qt.MiddleButton) root.refresh()
+    hoverEnabled: true
+    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+    cursorShape: Qt.PointingHandCursor
+    onEntered: root.hoverBtn = true
+    onExited: root.hoverBtn = false
+    onClicked: function (mouse) {
+      if (mouse.button === Qt.MiddleButton) root.refresh()
       else openProc.running = true
     }
   }
 
   Process {
     id: openProc
-    command: ["xdg-open", "https://agentbi.tech/leaderboard"]
+    command: ["xdg-open", "https://agentbi.tech/"]
+  }
+
+  // ---- hover panel
+  property bool hoverBtn: false
+  property bool panelOpen: false
+  readonly property bool hoverOpen: root.hoverBtn || popup.containsMouse
+
+  onHoverOpenChanged: {
+    if (root.hoverOpen) {
+      closeTimer.stop()
+      openTimer.restart()
+    } else {
+      openTimer.stop()
+      closeTimer.restart()
+    }
+  }
+
+  // Short enough not to fire while the cursor is only passing over the bar,
+  // long enough to cross the gap between the mark and the panel.
+  Timer {
+    id: openTimer
+    interval: 180
+    onTriggered: if (root.hoverOpen) root.panelOpen = true
+  }
+
+  Timer {
+    id: closeTimer
+    interval: 240
+    onTriggered: if (!root.hoverOpen) root.panelOpen = false
+  }
+
+  PopupCard {
+    id: popup
+    anchorItem: root
+    bar: root.bar
+    owner: root
+    triggerMode: "hover"
+    open: root.panelOpen
+    contentWidth: popup.fittedContentWidth(Style.space(300))
+    contentHeight: popup.fittedContentHeight(col.implicitHeight)
+
+    Column {
+      id: col
+      anchors.fill: parent
+      spacing: Style.space(5)
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: root.siteName || "AgentBI"
+        color: root.fg
+        font.family: root.mono
+        font.pixelSize: Style.font.subtitle
+        font.bold: true
+        elide: Text.ElideRight
+      }
+
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        text: root.siteUrl || ("no site configured — " + root.confPath)
+        color: root.fgDim
+        font.family: root.mono
+        font.pixelSize: Style.font.bodySmall
+        elide: Text.ElideRight
+      }
+
+      Row {
+        visible: root.status === "ok"
+        spacing: Style.space(4)
+        bottomPadding: Style.space(2)
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: String(root.score)
+          color: root.band
+          font.family: root.mono
+          font.pixelSize: Style.font.displayLarge
+          font.bold: true
+        }
+
+        Text {
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.space(4)
+          textFormat: Text.PlainText
+          text: "/100"
+          color: root.fgDim
+          font.family: root.mono
+          font.pixelSize: Style.font.bodySmall
+        }
+      }
+
+      Repeater {
+        model: root.rows
+
+        Text {
+          required property var modelData
+          width: parent.width
+          visible: modelData.value !== ""
+          textFormat: Text.PlainText
+          text: modelData.label + " · " + modelData.value
+          color: root.fg
+          font.family: root.mono
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+      }
+
+      Text {
+        width: parent.width
+        visible: root.status === "loading"
+        textFormat: Text.PlainText
+        text: "scanning…"
+        color: root.fgDim
+        font.family: root.mono
+        font.pixelSize: Style.font.bodySmall
+      }
+
+      Text {
+        width: parent.width
+        visible: root.status === "error"
+        textFormat: Text.PlainText
+        text: root.errText
+        color: Color.urgent
+        font.family: root.mono
+        font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
+      }
+
+      Text {
+        width: parent.width
+        visible: root.status === "empty"
+        textFormat: Text.PlainText
+        text: "url = https://your-store.com\nname = My Store\nlang = en"
+        color: root.fgDim
+        font.family: root.mono
+        font.pixelSize: Style.font.bodySmall
+        wrapMode: Text.WordWrap
+      }
+
+      Text {
+        width: parent.width
+        visible: root.status === "ok"
+        topPadding: Style.space(3)
+        textFormat: Text.PlainText
+        text: root.checkedAt + (root.fromCache ? " · cached" : " · fresh")
+        color: root.fgDim
+        font.family: root.mono
+        font.pixelSize: Style.font.bodySmall
+      }
+    }
   }
 }

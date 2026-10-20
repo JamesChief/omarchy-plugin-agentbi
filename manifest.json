@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "agentbi",
   "name": "AgentBI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "JamesChief",
-  "description": "Today's agent-readiness census: how many stores an AI agent can actually buy from",
+  "description": "Your own site's agent-readiness score, hover for the full result",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "AgentBI",
-    "description": "Daily count of stores that deployed UCP, refreshed from the public census",
+    "description": "Score and per-dimension result for the site you configure",
     "category": "Info",
     "allowMultiple": false
   }

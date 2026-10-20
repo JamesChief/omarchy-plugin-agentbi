@@ -1,31 +1,54 @@
 # AgentBI — Omarchy bar widget
 
-One number in your bar: **how many of 225 storefronts an AI agent can actually buy from today.**
+Your own site's agent-readiness score in the bar: the AgentBI icon, a dot
+coloured by band, and the score. **Hover the mark for the panel** — your site's
+name, the score, and what was actually measured.
 
-![the widget in the bar](agentbi-bar.png)
-
-- Label: `61/225` — stores serving a UCP profile today, out of the scanned pool.
-- Tooltip: run day, how many were reachable, average score, and how many let a real
-  browser in but turn non-browser clients away.
-- Left click opens the leaderboard, middle click refreshes.
+<!-- screenshot: drop agentbi-bar.png back in once the new widget is on screen -->
 
 ## Install
 
     omarchy plugin add https://github.com/JamesChief/omarchy-plugin-agentbi --enable
 
-Or clone it into `~/.config/omarchy/plugins/agentbi/` and `omarchy plugin enable agentbi`.
+Or clone it into `~/.config/omarchy/plugins/agentbi/` and
+`omarchy plugin enable agentbi`.
+
+## Configure
+
+Copy the sample and put your site in it:
+
+    mkdir -p ~/.config/agentbi
+    cp widget.conf.example ~/.config/agentbi/widget.conf
+    $EDITOR ~/.config/agentbi/widget.conf
+
+    url = https://your-store.com
+    name = My Store
+    lang = en          # or zh — the measured lines come back in that language
+
+Three keys, one per line. Saving the file reloads it and triggers a fresh scan;
+the widget also rescans every 30 minutes, which is the server's cache window.
+
+## Reading the mark
+
+| Dot | Meaning |
+| --- | --- |
+| green | 80–100 |
+| amber | 50–79 |
+| red | 0–49 |
+| grey | not measured yet, or the scan failed (the panel says which) |
+
+- Left click opens <https://agentbi.tech>, middle click rescans now.
+- The panel lists the five dimensions the score is made of: agent fetch,
+  product data, UCP, llms.txt, robots.txt.
 
 ## Where the numbers come from
 
-<https://agentbi.tech/summary.json> — a few hundred bytes, public, no API key, cached
-30 minutes. Everything on the site is recomputable from the raw daily scan:
-<https://agentbi.tech/batch.json> (one row per store, every measured field).
-
-The census runs once a day (`03:30 +0800`), so the widget refreshes every 30 minutes
-and not faster — there is nothing new to poll in between, and the data is a snapshot
-from a single vantage, which the site states on every page.
+One GET per scan to <https://agentbi.tech/api/check?url=…>, the same endpoint
+the website's own form calls — a real scan from a single vantage, cached for
+30 minutes. The daily census of 225 storefronts is a different thing and lives
+at <https://agentbi.tech/batch.json>.
 
 ## Privacy
 
-No accounts, no telemetry. The only outbound request this widget makes is one `curl`
-to the summary above (a plain GET, logged like any other visitor).
+No accounts, no telemetry. The only outbound request is the check above, and it
+carries the URL you configured — nothing else leaves the machine.
