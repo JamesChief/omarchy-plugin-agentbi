@@ -18,6 +18,14 @@ BarWidget {
   property string siteName: ""
   property string lang: "en"
 
+  // The hover panel is a passive overlay on purpose — it cannot take keyboard
+  // focus, so editing happens in the same card switched to click mode, which
+  // does grab it.
+  property bool editing: false
+  property string formUrl: ""
+  property string formName: ""
+  property string formLang: "en"
+
   // empty | loading | ok | error
   property string status: "empty"
   property int score: -1
@@ -87,6 +95,32 @@ BarWidget {
     // the second call cannot kill the first request mid-flight (a killed curl
     // answers with an empty body, which reads as a failed scan).
     startTimer.restart()
+  }
+
+  function startEditing() {
+    root.formUrl = root.siteUrl
+    root.formName = root.siteName
+    root.formLang = root.lang
+    root.editing = true
+    Qt.callLater(function () { urlField.forceActiveFocus() })
+  }
+
+  function saveEditing() {
+    var url = String(root.formUrl || "").trim().replace(/\s+/g, " ")
+    var name = String(root.formName || "").trim().replace(/\s+/g, " ")
+    root.formUrl = url
+    root.formName = name
+    root.editing = false
+    writeProc.running = true
+  }
+
+  // Values travel as argv, never interpolated into the script: a URL is
+  // arbitrary text and this writes a file.
+  Process {
+    id: writeProc
+    command: ["sh", "-c",
+             "mkdir -p \"$(dirname \"$4\")\" && printf 'url = %s\\nname = %s\\nlang = %s\\n' \"$1\" \"$2\" \"$3\" > \"$4\"",
+             "sh", root.formUrl, root.formName, root.formLang, root.confPath]
   }
 
   Timer {
@@ -244,8 +278,10 @@ BarWidget {
     anchorItem: root
     bar: root.bar
     owner: root
-    triggerMode: "hover"
-    open: root.panelOpen
+    // Hover shows the result; editing switches the same card to click mode so
+    // it takes keyboard focus and stays put while you type.
+    triggerMode: root.editing ? "click" : "hover"
+    open: root.editing || root.panelOpen
     contentWidth: popup.fittedContentWidth(Style.space(300))
     contentHeight: popup.fittedContentHeight(col.implicitHeight)
 
@@ -351,13 +387,105 @@ BarWidget {
 
       Text {
         width: parent.width
-        visible: root.status === "ok"
+        visible: root.status === "ok" && !root.editing
         topPadding: Style.space(3)
         textFormat: Text.PlainText
         text: root.checkedAt + (root.fromCache ? " · cached" : " · fresh")
         color: root.fgDim
         font.family: root.mono
         font.pixelSize: Style.font.bodySmall
+      }
+
+      Row {
+        visible: !root.editing
+        topPadding: Style.space(2)
+        spacing: Style.space(4)
+
+        Button {
+          text: "Edit site"
+          onClicked: root.startEditing()
+        }
+      }
+
+      Column {
+        width: parent.width
+        visible: root.editing
+        spacing: Style.space(4)
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: "Site URL"
+          color: root.fgDim
+          font.family: root.mono
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        TextField {
+          id: urlField
+          width: parent.width
+          text: root.formUrl
+          placeholderText: "https://your-store.com"
+          onTextChanged: root.formUrl = text
+          onAccepted: root.saveEditing()
+        }
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: "Name shown in the panel"
+          color: root.fgDim
+          font.family: root.mono
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        TextField {
+          id: nameField
+          width: parent.width
+          text: root.formName
+          placeholderText: "My Store"
+          onTextChanged: root.formName = text
+          onAccepted: root.saveEditing()
+        }
+
+        Row {
+          spacing: Style.space(4)
+
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: "Language"
+            color: root.fgDim
+            font.family: root.mono
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Button {
+            text: "en"
+            active: root.formLang === "en"
+            onClicked: root.formLang = "en"
+          }
+
+          Button {
+            text: "zh"
+            active: root.formLang === "zh"
+            onClicked: root.formLang = "zh"
+          }
+        }
+
+        Row {
+          spacing: Style.space(4)
+
+          Button {
+            text: "Save"
+            onClicked: root.saveEditing()
+          }
+
+          Button {
+            text: "Cancel"
+            onClicked: root.editing = false
+          }
+        }
       }
     }
   }

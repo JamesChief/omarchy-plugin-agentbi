@@ -28,6 +28,11 @@ Copy the sample and put your site in it:
 Three keys, one per line. Saving the file reloads it and triggers a fresh scan;
 the widget also rescans every 30 minutes, which is the server's cache window.
 
+You can also set them from the widget: hover the mark, click **Edit site**. The
+panel then switches to a form (that mode takes keyboard focus, which a hover
+panel cannot), and Save writes the same file back. Editing the file by hand
+still works — the file is the one source of truth.
+
 ## Reading the mark
 
 | Dot | Meaning |

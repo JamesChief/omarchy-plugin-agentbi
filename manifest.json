@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "agentbi",
   "name": "AgentBI",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "JamesChief",
   "description": "Your own site's agent-readiness score, hover for the full result",
   "kinds": [
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "AgentBI",
-    "description": "Score and per-dimension result for the site you configure",
+    "description": "Score and per-dimension result for your site, editable from the widget",
     "category": "Info",
     "allowMultiple": false
   }
